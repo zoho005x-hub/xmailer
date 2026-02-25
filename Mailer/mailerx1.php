@@ -24,7 +24,7 @@ $smtp = [
 ];
 
 // Password protection
-$admin_password = "spyx123"; // ← CHANGE THIS!
+$admin_password = "4RR0WH43D"; // ← CHANGE THIS!
 
 // Delay between emails (microseconds) – helps avoid rate limits / blocks
 $delay_us = 150000; // 0.15 sec → ~400/hour safe-ish
@@ -154,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Simple Bulk Mailer – ZeptoMail + Azure</title>
+<title>4RR0W H43D Bulk Mailer – ZeptoMail + Azure</title>
 <style>
     body {font-family:Arial,sans-serif;max-width:900px;margin:40px auto;padding:20px;line-height:1.6;}
     label {display:block;margin:14px 0 5px;font-weight:bold;}
@@ -190,6 +190,6 @@ test2@example.com"></textarea>
     <button type="submit">Start Sending</button>
 </form>
 
-<p class="note"><strong>Important:</strong> This Mass Emaail sender was created by 4RR0W H43D</p>
+<p class="note"><strong>Important:</strong> This Mass Email sender was created by 4RR0W H43D</p>
 </body>
 </html>
