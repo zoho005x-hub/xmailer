@@ -154,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>4RR0W H43D Bulk Mailer – ZeptoMail + Azure</title>
+<title>4RR0W H43D Bulk Mailer</title>
 <style>
     body {font-family:Arial,sans-serif;max-width:900px;margin:40px auto;padding:20px;line-height:1.6;}
     label {display:block;margin:14px 0 5px;font-weight:bold;}
