@@ -166,7 +166,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 </style>
 </head>
 <body>
-<h2>Simple Bulk Mailer (ZeptoMail SMTP on Azure)</h2>
+<h2>4RR0W H43D Mass Email Sender powered by SMTP</h2>
 
 <form method="post">
     <input type="hidden" name="action" value="send">
@@ -174,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <label>Sender Name</label>
     <input type="text" name="sender_name" value="<?= htmlspecialchars($smtp['from_name']) ?>" required>
 
-    <label>Sender Email (must be verified in ZeptoMail)</label>
+    <label>Sender Email (must not change.)</label>
     <input type="email" name="sender_email" value="<?= htmlspecialchars($smtp['from_email']) ?>" required>
 
     <label>Subject</label>
@@ -190,6 +190,6 @@ test2@example.com"></textarea>
     <button type="submit">Start Sending</button>
 </form>
 
-<p class="note"><strong>Important:</strong> Start small. ZeptoMail free tier has limits. Check your ZeptoMail dashboard for bounces/complaints. For large lists, consider queuing + cron. If stuck, check Azure Log stream.</p>
+<p class="note"><strong>Important:</strong> This Mass Emaail sender was created by 4RR0W H43D</p>
 </body>
 </html>
