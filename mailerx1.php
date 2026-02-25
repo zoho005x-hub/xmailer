@@ -17,12 +17,12 @@ error_reporting(E_ALL);
 
 // SMTP settings – example for Brevo (free 300/day) or Gmail
 $smtp = [
-    'host'     => 'smtp-relay.brevo.com',      // Brevo: smtp-relay.brevo.com
+    'host'     => 'smtp.zeptomail.com',      // Brevo: smtp-relay.brevo.com
     'port'     => 587,
     'secure'   => 'tls',                       // 'tls' or 'ssl'
-    'username' => 'your-brevo-login-email@example.com',
-    'password' => 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', // SMTP key from Brevo dashboard
-    'from_email' => 'sender@yourdomain.com',
+    'username' => 'emailapikey',
+    'password' => 'wSsVR613+EP2B617zjGpI+86ngxcUVv0QRh53VSnuSOpH6qQ8ccyxhecA1ekHKQcEDRsHGYXp7h6mxZR1jcKiogkyw4HWSiF9mqRe1U4J3x17qnvhDzDXWpZlROIL4IKzwlqm2NiEMgm+g==', // SMTP key from Brevo dashboard
+    'from_email' => 'postmail@tghawaii.cc',
     'from_name'  => 'Your App Name',
 ];
 
@@ -178,4 +178,5 @@ user2@example.com
 <p><strong>Note:</strong> This is basic – no advanced placeholders yet (you can add str_replace logic if needed). Test with 2–3 emails first. Use external SMTP (not Azure internal). Check Azure logs if 500 occurs.</p>
 
 </body>
+
 </html>
