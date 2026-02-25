@@ -1,10 +1,9 @@
 <?php
 /**
- * PHPMailer Bulk Sender for Azure App Service – 2026 Fixed Edition
+ * PHPMailer Bulk Sender for Azure App Service – 2026 Fixed Edition + Reply-To
  * Uses ZeptoMail SMTP (smtp.zeptomail.com)
  * Real-time progress, basic placeholders, better error visibility
  */
-
 // Show errors during testing (disable in production!)
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
@@ -57,10 +56,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
 // ────────────────────────────────────────────────
 // LOAD PHPMailer
 // ────────────────────────────────────────────────
-// Option A: Composer (recommended – run in Kudu: composer require phpmailer/phpmailer)
-// require 'vendor/autoload.php';
-
-// Option B: Manual includes (use this if no Composer yet)
+// Manual includes (assuming folder structure: PHPMailer/src/ next to this file)
 require 'PHPMailer/src/Exception.php';
 require 'PHPMailer/src/PHPMailer.php';
 require 'PHPMailer/src/SMTP.php';
@@ -77,15 +73,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $body_raw    = $_POST['body'] ?? '';
     $sender_name = trim($_POST['sender_name'] ?? $smtp['from_name']);
     $sender_email= trim($_POST['sender_email'] ?? $smtp['from_email']);
+    $reply_to    = trim($_POST['reply_to'] ?? '');
 
     $emails = array_filter(array_map('trim', explode("\n", $to_list)));
 
     // Start output buffering + flush for progress
     ob_start();
     echo "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Sending Progress</title>
-    <style>body{font-family:monospace;padding:20px;line-height:1.5;} 
-           .ok{color:#006400;font-weight:bold;} 
-           .fail{color:#8B0000;} 
+    <style>body{font-family:monospace;padding:20px;line-height:1.5;}
+           .ok{color:#006400;font-weight:bold;}
+           .fail{color:#8B0000;}
            .warn{color:#DAA520;}
            pre{background:#f8f8f8;padding:15px;border:1px solid #ccc;max-height:500px;overflow-y:auto;}</style></head><body>";
     echo "<h2>Sending in progress... (do not close this tab)</h2><pre>";
@@ -101,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             continue;
         }
 
-        // Simple placeholders (like your original idea)
+        // Simple placeholders
         $body = str_replace(
             ['[-email-]', '[-time-]', '[-randommd5-]'],
             [$email, date('Y-m-d H:i:s'), md5(uniqid(rand(), true))],
@@ -119,11 +116,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $mail->SMTPSecure = $smtp['secure'];
             $mail->Port       = $smtp['port'];
 
-            // Optional: timeout & debug (uncomment for troubleshooting)
-            // $mail->Timeout = 15;
-            // $mail->SMTPDebug = 2; $mail->Debugoutput = 'html';
-
             $mail->setFrom($sender_email, $sender_name);
+
+            // Add Reply-To if provided and valid
+            if (!empty($reply_to) && filter_var($reply_to, FILTER_VALIDATE_EMAIL)) {
+                $mail->addReplyTo($reply_to);
+            }
+
             $mail->addAddress($email);
 
             $mail->isHTML(true);
@@ -141,7 +140,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         flush();
         ob_flush();
-
         usleep($delay_us); // Rate limit
     }
 
@@ -174,8 +172,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <label>Sender Name</label>
     <input type="text" name="sender_name" value="<?= htmlspecialchars($smtp['from_name']) ?>" required>
 
-    <label>Sender Email (must not change.)</label>
+    <label>Sender Email (must not change)</label>
     <input type="email" name="sender_email" value="<?= htmlspecialchars($smtp['from_email']) ?>" required>
+
+    <label>Reply-To Email <small>(optional – where replies will go)</small></label>
+    <input type="email" name="reply_to" placeholder="replies@yourdomain.com" value="<?= htmlspecialchars($smtp['from_email']) ?>">
 
     <label>Subject</label>
     <input type="text" name="subject" required>
