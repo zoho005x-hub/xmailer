@@ -1,233 +1,204 @@
 <?php
 /**
- * Custom SMTP Mailer v2.8
- * Rebuilt & cleaned by Grok (xAI) - Safe version with full SMTP
- * Original Leaf concept kept, backdoor removed
-**/
-
-$password = "spyx";   // <<< CHANGE THIS PASSWORD!
+ * Modern Bulk Mailer Example – 2026 SAFE version
+ * NOT for unsolicited email. For consented lists only.
+ * Use a real ESP (Brevo, MailerSend, Amazon SES, etc.) for anything >500/day
+ */
 
 session_start();
-error_reporting(0);
-set_time_limit(0);
-ini_set("memory_limit", -1);
 
-$version = "2.8";
+// ── CHANGE THESE ────────────────────────────────────────────────
+$admin_password       = 'spyx';                     // CHANGE THIS
+$max_emails_per_run   = 200;                        // safety limit
+$delay_microseconds   = 400_000;                    // 0.4 sec → ~150/h
+$smtp_keep_alive      = true;                       // reuse connection
 
-// ====================== PASSWORD PROTECTION ======================
-$sessioncode = md5(__FILE__);
-if (!empty($password) && $_SESSION[$sessioncode] != $password) {
-    if (isset($_REQUEST['pass']) && $_REQUEST['pass'] == $password) {
-        $_SESSION[$sessioncode] = $password;
+// SMTP relay (strongly recommended – do NOT use hosting SMTP for bulk)
+$smtp = [
+    'host'     => 'smtp-relay.brevo.com',           // example – change!
+    'port'     => 587,
+    'username' => 'your-brevo-smtp-user',
+    'password' => 'your-brevo-smtp-key',
+    'secure'   => 'tls',                            // 'tls' or 'ssl'
+    'from'     => 'news@yourcompany.com',
+    'fromName' => 'Your Company Newsletter',
+];
+
+// ── NO CHANGES BELOW UNLESS YOU KNOW WHAT YOU'RE DOING ──────────
+
+error_reporting(E_ALL);
+ini_set('display_errors', 1); // only during testing!
+
+require 'vendor/autoload.php'; // composer require phpmailer/phpmailer
+
+use PHPMailer\PHPMailer\PHPMailer;
+use PHPMailer\PHPMailer\Exception;
+
+header('Content-Type: text/html; charset=utf-8');
+
+$session_key = 'bulkmailer_' . md5(__FILE__);
+
+if (empty($_SESSION[$session_key]) || $_SESSION[$session_key] !== $admin_password) {
+    if (!empty($_POST['pw']) && $_POST['pw'] === $admin_password) {
+        $_SESSION[$session_key] = $admin_password;
     } else {
-        echo "<pre align=center><form method=post>Password: <input type='password' name='pass'><input type='submit' value='>>'></form></pre>";
+        ?>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head><meta charset="utf-8"><title>Login</title></head>
+        <body style="font-family:sans-serif; text-align:center; margin-top:100px;">
+            <h2>Protected Bulk Mailer</h2>
+            <form method="post">
+                Password: <input type="password" name="pw" autofocus>
+                <button type="submit">→</button>
+            </form>
+        </body></html>
+        <?php
         exit;
     }
 }
 
-// ====================== HELPER FUNCTIONS ======================
-function leafTrim($string) {
-    return stripslashes(ltrim(rtrim($string)));
+// ── Form & Sending logic ────────────────────────────────────────
+
+$sent_ok   = 0;
+$sent_fail = 0;
+$log       = [];
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_POST['action']) && $_POST['action'] === 'send') {
+    $subject     = trim($_POST['subject'] ?? '');
+    $html        = trim($_POST['html'] ?? '');
+    $emails_raw  = trim($_POST['emails'] ?? '');
+    $test_email  = trim($_POST['test'] ?? '');
+
+    $emails = array_filter(array_map('trim', explode("\n", $emails_raw)));
+
+    if ($test_email) {
+        $emails = [$test_email]; // test mode
+    }
+
+    if (count($emails) > $max_emails_per_run) {
+        $log[] = "<strong style='color:red'>Too many emails. Limit is {$max_emails_per_run} per run for safety.</strong>";
+    } elseif (empty($subject) || empty($html) || empty($emails)) {
+        $log[] = "<strong style='color:orange'>Missing subject, message or recipients.</strong>";
+    } else {
+        $mail = new PHPMailer(true);
+        try {
+            // Server settings
+            $mail->isSMTP();
+            $mail->Host       = $smtp['smtp.zeptomail.com'];
+            $mail->SMTPAuth   = true;
+            $mail->Username   = $smtp['emailapikey'];
+            $mail->Password   = $smtp['wSsVR613+EP2B617zjGpI+86ngxcUVv0QRh53VSnuSOpH6qQ8ccyxhecA1ekHKQcEDRsHGYXp7h6mxZR1jcKiogkyw4HWSiF9mqRe1U4J3x17qnvhDzDXWpZlROIL4IKzwlqm2NiEMgm+g=='];
+            $mail->SMTPSecure = $smtp['secure'];
+            $mail->Port       = $smtp['465'];
+            $mail->Timeout    = 15;
+            $mail->SMTPKeepAlive = $smtp_keep_alive;
+
+            // Headers
+            $mail->setFrom($smtp['postmail@tghawaii.cc'], $smtp['fromName']);
+            $mail->addReplyTo($smtp['from'], $smtp['fromName']);
+            $mail->isHTML(true);
+            $mail->CharSet = 'UTF-8';
+            $mail->Subject = $subject;
+            $mail->Body    = $html;
+
+            // Anti-fingerprint
+            $mail->XMailer = ' ';
+
+            $count = 0;
+            foreach ($emails as $email) {
+                if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                    $log[] = "Invalid: $email";
+                    continue;
+                }
+
+                $mail->clearAddresses();
+                $mail->addAddress($email);
+
+                // Personalization example
+                $body = str_replace(
+                    ['{{EMAIL}}', '{{DATE}}'],
+                    [$email, date('Y-m-d')],
+                    $html
+                );
+                $mail->Body = $body;
+
+                if ($mail->send()) {
+                    $sent_ok++;
+                    $log[] = "<span style='color:green'>OK → $email</span>";
+                } else {
+                    $sent_fail++;
+                    $log[] = "<span style='color:red'>FAIL → $email – " . htmlspecialchars($mail->ErrorInfo) . "</span>";
+                }
+
+                $count++;
+                if ($count >= $max_emails_per_run) break;
+
+                usleep($delay_microseconds); // rate limit
+            }
+
+            if ($smtp_keep_alive) $mail->smtpClose();
+
+        } catch (Exception $e) {
+            $log[] = "<strong style='color:red'>PHPMailer fatal: " . htmlspecialchars($e->getMessage()) . "</strong>";
+        }
+    }
 }
 
-function leafClear($text, $email) {
-    $emailuser = preg_replace('/([^@]*).*/', '$1', $email);
-    $text = str_replace("[-time-]", date("m/d/Y h:i:s a"), $text);
-    $text = str_replace("[-email-]", $email, $text);
-    $text = str_replace("[-emailuser-]", $emailuser, $text);
-    $text = str_replace("[-randomletters-]", randString('abcdefghijklmnopqrstuvwxyz'), $text);
-    $text = str_replace("[-randomstring-]", randString('abcdefghijklmnopqrstuvwxyz0123456789'), $text);
-    $text = str_replace("[-randomnumber-]", randString('0123456789'), $text);
-    $text = str_replace("[-randommd5-]", md5(rand()), $text);
-    return $text;
-}
-
-function randString($chars) {
-    $len = rand(12, 25);
-    $str = '';
-    for ($i = 0; $i < $len; $i++) $str .= $chars[rand(0, strlen($chars)-1)];
-    return $str;
-}
-
-function leafMailCheck($email) {
-    $exp = "^[a-z\'0-9]+([._-][a-z\'0-9]+)*@([a-z0-9]+([._-][a-z0-9]+))+$";
-    return eregi($exp, $email) && checkdnsrr(array_pop(explode("@", $email)), "MX");
-}
-
-// ====================== FORM VALUES ======================
-$senderEmail = isset($_POST['senderEmail']) ? leafTrim($_POST['senderEmail']) : '';
-$senderName  = isset($_POST['senderName'])  ? leafTrim($_POST['senderName'])  : '';
-$replyTo     = isset($_POST['replyTo'])     ? leafTrim($_POST['replyTo'])     : '';
-$subject     = isset($_POST['subject'])     ? leafTrim($_POST['subject'])     : '';
-$emailList   = isset($_POST['emailList'])   ? leafTrim($_POST['emailList'])   : '';
-$messageLetter = isset($_POST['messageLetter']) ? $_POST['messageLetter'] : '';
-$messageType = isset($_POST['messageType']) ? (int)$_POST['messageType'] : 1;
-$encode      = isset($_POST['encode'])      ? leafTrim($_POST['encode'])      : 'UTF-8';
-
-$smtpHost   = isset($_POST['smtpHost'])   ? leafTrim($_POST['smtpHost'])   : '';
-$smtpPort   = isset($_POST['smtpPort'])   ? (int)$_POST['smtpPort']        : 587;
-$smtpUser   = isset($_POST['smtpUser'])   ? leafTrim($_POST['smtpUser'])   : '';
-$smtpPass   = isset($_POST['smtpPass'])   ? $_POST['smtpPass']             : '';
-$smtpSecure = isset($_POST['smtpSecure']) ? leafTrim($_POST['smtpSecure']) : '';
-
-$plain = ($messageType == 2) ? 'checked' : '';
-$html  = ($messageType == 1) ? 'checked' : '';
-
-// Process message when sending
-if ($_POST['action'] == "send") {
-    $messageLetter = leafTrim($_POST['messageLetter']);
-    $messageLetter = urlencode($messageLetter);
-    $messageLetter = str_replace("%5C%22", "%22", $messageLetter);
-    $messageLetter = urldecode($messageLetter);
-    $messageLetter = stripslashes($messageLetter);
-    $subject = stripslashes($subject);
-}
 ?>
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Custom SMTP Mailer v<?php echo $version; ?></title>
     <meta charset="utf-8">
-    <link href="https://maxcdn.bootstrapcdn.com/bootswatch/3.3.6/cosmo/bootstrap.min.css" rel="stylesheet">
+    <title>Bulk Mailer 2026 – small & safe</title>
+    <style>
+        body{font-family:sans-serif; max-width:900px; margin:2rem auto; line-height:1.5;}
+        textarea{width:100%; height:180px; font-family:monospace;}
+        .log {background:#f8f8f8; padding:1rem; border:1px solid #ddd; max-height:400px; overflow-y:auto; font-size:0.95rem;}
+        .warning {background:#fff3cd; padding:1rem; border-radius:6px; margin:1rem 0;}
+    </style>
 </head>
 <body>
-<div class="container">
-    <h3><span class="glyphicon glyphicon-envelope" style="color:green"></span> Custom SMTP Mailer <small>v<?php echo $version; ?></small></h3>
 
-    <form method="POST" enctype="multipart/form-data">
-        <!-- From / Reply / Attachment -->
-        <div class="row">
-            <div class="col-lg-6 form-group"><label>From Email</label><input type="text" name="senderEmail" class="form-control input-sm" value="<?php echo htmlspecialchars($senderEmail); ?>"></div>
-            <div class="col-lg-6 form-group"><label>From Name</label><input type="text" name="senderName" class="form-control input-sm" value="<?php echo htmlspecialchars($senderName); ?>"></div>
-        </div>
-        <div class="row">
-            <div class="col-lg-6 form-group"><label>Reply-To</label><input type="text" name="replyTo" class="form-control input-sm" value="<?php echo htmlspecialchars($replyTo); ?>"></div>
-            <div class="col-lg-6 form-group"><label>Attachment(s)</label><input type="file" name="attachment[]" multiple class="form-control input-sm"></div>
-        </div>
+<h1>Bulk Mailer – 2026 SAFE edition</h1>
 
-        <div class="form-group"><label>Subject</label><input type="text" name="subject" class="form-control" value="<?php echo htmlspecialchars($subject); ?>"></div>
-
-        <div class="row">
-            <div class="col-lg-6 form-group"><label>Message (HTML or Plain)</label><textarea name="messageLetter" rows="12" class="form-control"><?php echo htmlspecialchars($messageLetter); ?></textarea></div>
-            <div class="col-lg-6 form-group"><label>Email List (one per line)</label><textarea name="emailList" rows="12" class="form-control"><?php echo htmlspecialchars($emailList); ?></textarea></div>
-        </div>
-
-        <div class="row">
-            <div class="col-lg-4">
-                <label>Message Type</label><br>
-                HTML <input type="radio" name="messageType" value="1" <?php echo $html; ?>> &nbsp;
-                Plain <input type="radio" name="messageType" value="2" <?php echo $plain; ?>>
-            </div>
-            <div class="col-lg-3">
-                <label>CharSet</label>
-                <select name="encode" class="form-control input-sm">
-                    <option value="UTF-8" <?php if($encode=='UTF-8') echo 'selected'; ?>>UTF-8</option>
-                    <option value="ISO-8859-1" <?php if($encode=='ISO-8859-1') echo 'selected'; ?>>ISO-8859-1</option>
-                </select>
-            </div>
-        </div>
-
-        <!-- SMTP -->
-        <div class="well">
-            <h4>SMTP Settings <small>(leave empty to use PHP mail())</small></h4>
-            <div class="row">
-                <div class="col-lg-5 form-group"><label>Host</label><input type="text" name="smtpHost" class="form-control input-sm" value="<?php echo htmlspecialchars($smtpHost); ?>" placeholder="smtp.gmail.com"></div>
-                <div class="col-lg-2 form-group"><label>Port</label><input type="text" name="smtpPort" class="form-control input-sm" value="<?php echo $smtpPort; ?>"></div>
-                <div class="col-lg-5 form-group"><label>Username</label><input type="text" name="smtpUser" class="form-control input-sm" value="<?php echo htmlspecialchars($smtpUser); ?>"></div>
-            </div>
-            <div class="row">
-                <div class="col-lg-6 form-group"><label>Password</label><input type="password" name="smtpPass" class="form-control input-sm" value="<?php echo htmlspecialchars($smtpPass); ?>"></div>
-                <div class="col-lg-3 form-group">
-                    <label>Security</label>
-                    <select name="smtpSecure" class="form-control input-sm">
-                        <option value="" <?php if($smtpSecure=='') echo 'selected'; ?>>None</option>
-                        <option value="tls" <?php if($smtpSecure=='tls') echo 'selected'; ?>>TLS</option>
-                        <option value="ssl" <?php if($smtpSecure=='ssl') echo 'selected'; ?>>SSL</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <button type="submit" class="btn btn-success btn-lg" name="action" value="send">SEND EMAILS</button>
-    </form>
-
-    <?php
-    if ($_POST['action'] == "send") {
-        echo '<hr><h4>Sending results:</h4>';
-        $list = array_filter(explode("\r\n", $emailList));
-        $total = count($list);
-        $i = 1;
-
-        foreach ($list as $email) {
-            $email = trim($email);
-            if (empty($email)) continue;
-
-            echo "<div class='row'><div class='col-lg-1'>[$i/$total]</div><div class='col-lg-5'>$email</div>";
-
-            if (!leafMailCheck($email)) {
-                echo '<div class="col-lg-6"><span class="label label-warning">Invalid email</span></div></div>';
-            } else {
-                $mail = new PHPMailer();
-
-                // SMTP CONFIG
-                if (!empty($smtpHost)) {
-                    $mail->isSMTP();
-                    $mail->Host       = $smtpHost;
-                    $mail->Port       = $smtpPort;
-                    $mail->SMTPAuth   = !empty($smtpUser) && !empty($smtpPass);
-                    $mail->Username   = $smtpUser;
-                    $mail->Password   = $smtpPass;
-                    $mail->SMTPSecure = $smtpSecure;
-                    $mail->SMTPDebug  = 0;   // set to 2 for debugging
-                }
-
-                $mail->setFrom(leafClear($senderEmail, $email), leafClear($senderName, $email));
-                if ($replyTo) $mail->addReplyTo(leafClear($replyTo, $email));
-                $mail->addAddress($email);
-                $mail->Subject = leafClear($subject, $email);
-                $mail->Body    = leafClear($messageLetter, $email);
-                $mail->CharSet = $encode;
-                $mail->isHTML($messageType == 1);
-
-                // Attachments
-                for ($a = 0; $a < count($_FILES['attachment']['name']); $a++) {
-                    if (!empty($_FILES['attachment']['tmp_name'][$a])) {
-                        $mail->addAttachment($_FILES['attachment']['tmp_name'][$a], $_FILES['attachment']['name'][$a]);
-                    }
-                }
-
-                echo $mail->send()
-                    ? '<div class="col-lg-6"><span class="label label-success">OK</span></div>'
-                    : '<div class="col-lg-6"><span class="label label-danger">' . htmlspecialchars($mail->ErrorInfo) . '</span></div>';
-                echo "</div>";
-            }
-            $i++;
-            usleep(30000); // 30ms delay
-        }
-    }
-    ?>
+<div class="warning">
+    <strong>Important legal & deliverability warning</strong><br>
+    → Only use with **explicit consent** (double opt-in preferred).<br>
+    → You **must** have SPF / DKIM / DMARC configured on your domain.<br>
+    → Gmail/Yahoo/Microsoft block or spam most self-hosted bulk senders in 2026.<br>
+    → For >500–1 000 emails/day → use Brevo / MailerSend / Amazon SES / Postmark.<br>
+    Sending unsolicited email is illegal in most countries.
 </div>
+
+<form method="post">
+    <input type="hidden" name="action" value="send">
+
+    <p><label>Subject<br>
+    <input type="text" name="subject" style="width:100%; padding:0.5rem;" required></label></p>
+
+    <p><label>HTML Message (use {{EMAIL}} and {{DATE}} for personalization)<br>
+    <textarea name="html" required placeholder="Hello {{EMAIL}}, ..."></textarea></label></p>
+
+    <p><label>Recipients – one email per line<br>
+    <textarea name="emails" placeholder="user1@example.com
+user2@example.com" required></textarea></label></p>
+
+    <p><label>Test only (single address)<br>
+    <input type="email" name="test" placeholder="your-test@email.com"></label></p>
+
+    <button type="submit" style="padding:0.8rem 1.5rem; background:#28a745; color:white; border:none; border-radius:6px; font-size:1.1rem;">
+        Send (max <?= $max_emails_per_run ?> per run)
+    </button>
+</form>
+
+<?php if ($log): ?>
+<hr>
+<h3>Result (<?= $sent_ok ?> ok / <?= $sent_fail ?> failed)</h3>
+<div class="log">
+    <?= implode("<br>\n", $log) ?>
+</div>
+<?php endif; ?>
+
 </body>
 </html>
-<?php
-
-// ====================== CLEAN PHPMailer CLASS (backdoor removed) ======================
-// Paste your original full PHPMailer class here, but replace the isHTML() function with this clean one:
-
-class PHPMailer {
-    // ... (keep ALL your original class code exactly as it was)
-
-    public function isHTML($isHtml = true) {
-        if ($isHtml) {
-            $this->ContentType = 'text/html';
-        } else {
-            $this->ContentType = 'text/plain';
-        }
-    }
-
-    // In createHeader() function, change the X-Mailer line to:
-    // $result .= $this->headerLine('X-Mailer', 'Custom SMTP Mailer ' . $version);
-}
-
-// If you want me to give you the **complete 1400-line single file** with the full class already pasted in, just reply "give full single file" and I'll send it.
