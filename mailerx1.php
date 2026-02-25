@@ -1,36 +1,36 @@
 <?php
 /**
- * PHPMailer Bulk Sender for Azure App Service
- * Version: 2026 edition – clean, with progress feedback
- * Works on Azure App Service PHP (Linux)
- * Use external SMTP (Gmail / Brevo / Office365 / SendGrid etc.)
-**/
+ * PHPMailer Bulk Sender for Azure App Service – 2026 Fixed Edition
+ * Uses ZeptoMail SMTP (smtp.zeptomail.com)
+ * Real-time progress, basic placeholders, better error visibility
+ */
 
-// Enable error display during testing (remove or comment out in production)
+// Show errors during testing (disable in production!)
 ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 // ────────────────────────────────────────────────
-//  CONFIG – CHANGE THESE VALUES
+// CONFIG – CHANGE THESE IF NEEDED
 // ────────────────────────────────────────────────
-
-// SMTP settings – example for Brevo (free 300/day) or Gmail
 $smtp = [
-    'host'     => 'smtp.zeptomail.com',      // Brevo: smtp-relay.brevo.com
-    'port'     => 587,
-    'secure'   => 'tls',                       // 'tls' or 'ssl'
-    'username' => 'emailapikey',
-    'password' => 'wSsVR613+EP2B617zjGpI+86ngxcUVv0QRh53VSnuSOpH6qQ8ccyxhecA1ekHKQcEDRsHGYXp7h6mxZR1jcKiogkyw4HWSiF9mqRe1U4J3x17qnvhDzDXWpZlROIL4IKzwlqm2NiEMgm+g==', // SMTP key from Brevo dashboard
+    'host'       => 'smtp.zeptomail.com',
+    'port'       => 587,
+    'secure'     => 'tls',
+    'username'   => 'emailapikey',
+    'password'   => 'wSsVR613+EP2B617zjGpI+86ngxcUVv0QRh53VSnuSOpH6qQ8ccyxhecA1ekHKQcEDRsHGYXp7h6mxZR1jcKiogkyw4HWSiF9mqRe1U4J3x17qnvhDzDXWpZlROIL4IKzwlqm2NiEMgm+g==',
     'from_email' => 'postmail@tghawaii.cc',
     'from_name'  => 'Your App Name',
 ];
 
-// Password protection (change this!)
-$admin_password = "spyx123";   // ← CHANGE THIS
+// Password protection
+$admin_password = "spyx123"; // ← CHANGE THIS!
+
+// Delay between emails (microseconds) – helps avoid rate limits / blocks
+$delay_us = 150000; // 0.15 sec → ~400/hour safe-ish
 
 // ────────────────────────────────────────────────
-//  PASSWORD PROTECTION
+// PASSWORD PROTECTION
 // ────────────────────────────────────────────────
 session_start();
 if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
@@ -39,13 +39,13 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
     } else {
         ?>
         <!DOCTYPE html>
-        <html>
-        <head><title>Login</title></head>
-        <body style="text-align:center; margin-top:150px;">
+        <html lang="en">
+        <head><meta charset="UTF-8"><title>Login</title></head>
+        <body style="text-align:center; margin-top:150px; font-family:Arial;">
             <h2>Enter Password</h2>
             <form method="post">
-                <input type="password" name="pass" size="30">
-                <button type="submit">Login</button>
+                <input type="password" name="pass" size="35" autofocus required>
+                <button type="submit" style="padding:8px 16px;">Login</button>
             </form>
         </body>
         </html>
@@ -55,21 +55,22 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
 }
 
 // ────────────────────────────────────────────────
-//  PHPMailer – load via Composer or manual includes
+// LOAD PHPMailer
 // ────────────────────────────────────────────────
-// If using Composer (recommended on Azure):
-// Run in Kudu / SSH: composer require phpmailer/phpmailer
-// Then:
+// Option A: Composer (recommended – run in Kudu: composer require phpmailer/phpmailer)
 // require 'vendor/autoload.php';
+
+// Option B: Manual includes (use this if no Composer yet)
+require 'PHPMailer/src/Exception.php';
+require 'PHPMailer/src/PHPMailer.php';
+require 'PHPMailer/src/SMTP.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// Manual includes (if no Composer):
-// require 'PHPMailer/src/Exception.php';
-// require 'PHPMailer/src/PHPMailer.php';
-// require 'PHPMailer/src/SMTP.php';
-
+// ────────────────────────────────────────────────
+// SENDING LOGIC
+// ────────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'send') {
     $to_list     = trim($_POST['emails'] ?? '');
     $subject_raw = trim($_POST['subject'] ?? '');
@@ -79,23 +80,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     $emails = array_filter(array_map('trim', explode("\n", $to_list)));
 
-    echo "<!DOCTYPE html><html><head><title>Sending...</title>
-    <style>body{font-family:monospace;padding:20px;} .ok{color:green;font-weight:bold;} .fail{color:red;}</style></head><body>";
-    echo "<h2>Sending in progress...</h2><pre>";
+    // Start output buffering + flush for progress
+    ob_start();
+    echo "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'><title>Sending Progress</title>
+    <style>body{font-family:monospace;padding:20px;line-height:1.5;} 
+           .ok{color:#006400;font-weight:bold;} 
+           .fail{color:#8B0000;} 
+           .warn{color:#DAA520;}
+           pre{background:#f8f8f8;padding:15px;border:1px solid #ccc;max-height:500px;overflow-y:auto;}</style></head><body>";
+    echo "<h2>Sending in progress... (do not close this tab)</h2><pre>";
 
-    $count = 0;
+    $count   = 0;
     $success = 0;
 
     foreach ($emails as $email) {
+        $count++;
+
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            echo "[$count] $email → <span class='fail'>invalid</span>\n";
+            echo "[$count] $email → <span class='fail'>invalid email</span>\n";
             continue;
         }
+
+        // Simple placeholders (like your original idea)
+        $body = str_replace(
+            ['[-email-]', '[-time-]', '[-randommd5-]'],
+            [$email, date('Y-m-d H:i:s'), md5(uniqid(rand(), true))],
+            $body_raw
+        );
 
         $mail = new PHPMailer(true);
 
         try {
-            // Server settings
             $mail->isSMTP();
             $mail->Host       = $smtp['host'];
             $mail->SMTPAuth   = true;
@@ -104,53 +119,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $mail->SMTPSecure = $smtp['secure'];
             $mail->Port       = $smtp['port'];
 
-            // Recipients
+            // Optional: timeout & debug (uncomment for troubleshooting)
+            // $mail->Timeout = 15;
+            // $mail->SMTPDebug = 2; $mail->Debugoutput = 'html';
+
             $mail->setFrom($sender_email, $sender_name);
             $mail->addAddress($email);
 
-            // Content
             $mail->isHTML(true);
             $mail->Subject = $subject_raw;
-            $mail->Body    = $body_raw;
-            $mail->AltBody = strip_tags($body_raw);
+            $mail->Body    = $body;
+            $mail->AltBody = strip_tags($body);
 
             $mail->send();
             $success++;
             echo "[$count] $email → <span class='ok'>OK</span>\n";
         } catch (Exception $e) {
-            echo "[$count] $email → <span class='fail'>Failed: " . htmlspecialchars($mail->ErrorInfo) . "</span>\n";
+            $err = htmlspecialchars($mail->ErrorInfo);
+            echo "[$count] $email → <span class='fail'>Failed</span> – $err\n";
         }
 
-        $count++;
-        flush();          // Try to show progress
+        flush();
         ob_flush();
-        usleep(100000);   // 0.1 sec delay – helps avoid rate limits
+
+        usleep($delay_us); // Rate limit
     }
 
-    echo "\nFinished. Sent: $success / " . count($emails) . "\n";
-    echo "</pre><a href='?'>Back</a></body></html>";
+    echo "\nFinished.\nSent successfully: $success / " . count($emails) . "\n";
+    echo "</pre><p><a href='?' style='font-size:1.1em;'>← Back to form</a></p></body></html>";
     exit;
 }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Simple Mailer – Azure App Service</title>
+<title>Simple Bulk Mailer – ZeptoMail + Azure</title>
 <style>
-    body {font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:20px;}
-    textarea {width:100%;height:180px;}
-    label {display:block;margin:12px 0 4px;}
-    input[type=text], input[type=password] {width:100%;padding:8px;}
-    button {padding:12px 24px;background:#0066cc;color:white;border:none;cursor:pointer;margin-top:20px;}
+    body {font-family:Arial,sans-serif;max-width:900px;margin:40px auto;padding:20px;line-height:1.6;}
+    label {display:block;margin:14px 0 5px;font-weight:bold;}
+    input[type=text], input[type=email], textarea {width:100%;padding:9px;box-sizing:border-box;border:1px solid #ccc;border-radius:4px;}
+    textarea {height:160px;resize:vertical;}
+    button {padding:12px 28px;background:#0066cc;color:white;border:none;border-radius:5px;cursor:pointer;font-size:1.05em;margin-top:15px;}
     button:hover {background:#0052a3;}
-    pre {background:#f8f8f8;padding:15px;border:1px solid #ddd;max-height:400px;overflow-y:auto;}
+    .note {color:#555;font-size:0.95em;margin-top:20px;}
 </style>
 </head>
 <body>
-
-<h2>Simple Bulk Mailer (PHPMailer on Azure)</h2>
+<h2>Simple Bulk Mailer (ZeptoMail SMTP on Azure)</h2>
 
 <form method="post">
     <input type="hidden" name="action" value="send">
@@ -158,25 +174,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     <label>Sender Name</label>
     <input type="text" name="sender_name" value="<?= htmlspecialchars($smtp['from_name']) ?>" required>
 
-    <label>Sender Email (must match SMTP user/domain)</label>
+    <label>Sender Email (must be verified in ZeptoMail)</label>
     <input type="email" name="sender_email" value="<?= htmlspecialchars($smtp['from_email']) ?>" required>
 
     <label>Subject</label>
     <input type="text" name="subject" required>
 
-    <label>Message (HTML supported)</label>
-    <textarea name="body" required placeholder="Hello [-emailuser-], your code: [-randommd5-] ..."></textarea>
+    <label>Message (HTML supported – placeholders: [-email-], [-time-], [-randommd5-])</label>
+    <textarea name="body" required placeholder="Hello [-email-],\n\nYour account was updated on [-time-].\nVerification code: [-randommd5-]\n\nBest regards,"></textarea>
 
-    <label>Recipients (one email per line)</label>
-    <textarea name="emails" required placeholder="user1@example.com
-user2@example.com
-..."></textarea>
+    <label>Recipients (one email per line – test with 1–3 first!)</label>
+    <textarea name="emails" required placeholder="test1@example.com
+test2@example.com"></textarea>
 
-    <button type="submit">Send Emails</button>
+    <button type="submit">Start Sending</button>
 </form>
 
-<p><strong>Note:</strong> This is basic – no advanced placeholders yet (you can add str_replace logic if needed). Test with 2–3 emails first. Use external SMTP (not Azure internal). Check Azure logs if 500 occurs.</p>
-
+<p class="note"><strong>Important:</strong> Start small. ZeptoMail free tier has limits. Check your ZeptoMail dashboard for bounces/complaints. For large lists, consider queuing + cron. If stuck, check Azure Log stream.</p>
 </body>
-
 </html>
